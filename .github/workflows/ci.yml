@@ -7,34 +7,48 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # Évite les jobs bloqués
     steps:
-      - uses: actions/checkout@v3
+      # Étape 1: Récupération du code
+      - uses: actions/checkout@v4
 
+      # Étape 2: Configuration SSH
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" | base64 --decode > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
+      # Étape 3: Déploiement sur AWS
       - name: Deploy to AWS
         run: |
           ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
-            set -e
-            echo '1. Accès au répertoire...'
-            cd ${{ secrets.WORK_DIR }}
+            set -ex  # Mode verbose + sortie en cas d'erreur
             
-            echo '2. Mise à jour du code...'
-            git pull origin main
+            # 1. Aller dans le répertoire du projet
+            cd ${{ secrets.WORK_DIR }} || exit 1
             
-            echo '3. Nettoyage Docker...'
-            docker-compose down --rmi all --volumes --remove-orphans
+            # 2. Mettre à jour le code
+            echo '=== Mise à jour du code ==='
+            git fetch origin main
+            git reset --hard origin/main
             
-            echo '4. Reconstruction...'
+            # 3. Nettoyage Docker (force la suppression)
+            echo '=== Nettoyage Docker ==='
+            docker-compose down --rmi all --volumes --remove-orphans || true
+            
+            # 4. Reconstruction et démarrage
+            echo '=== Reconstruction ==='
             docker-compose up -d --build
+            
+            # 5. Vérification
+            echo '=== Vérification ==='
+            docker ps
           "
 
+      # Étape 4: Nettoyage des clés SSH (toujours exécutée)
       - name: Cleanup
         if: always()
         run: rm -rf ~/.ssh

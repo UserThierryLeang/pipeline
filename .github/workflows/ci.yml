@@ -1,37 +1,45 @@
-name: Deploy to AWS EC2
+name: CI/CD Pipeline
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Update packages
-        run: sudo apt update
-
-      - name: Install SSH client
-        run: sudo apt install -y openssh-client
-
-      - name: Configure SSH key
+        uses: actions/checkout@v3
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -yqq openssh-client
+      
+      - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" | base64 --decode > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
-
-      - name: Deploy code via SSH
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+      
+      - name: Test SSH connection
         run: |
-          ssh -i ~/.ssh/id_rsa ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
-            cd /chemin/de/ton/projet
+          ssh -T -i ~/.ssh/id_rsa ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} echo "SSH connection successful!"
+      
+      - name: Deploy application
+        run: |
+          ssh -i ~/.ssh/id_rsa ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
+            set -e
+            echo 'Changing to project directory...'
+            cd ${{ secrets.WORK_DIR }}
+            echo 'Pulling latest changes...'
             git pull origin main
-          EOF
-
-      - name: Cleanup SSH key
-        run: rm -rf ~/.ssh
+            echo 'Deployment completed successfully!'
+          "
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -rf ~/.ssh/id_rsa
+          rm -rf ~/.ssh/known_hosts

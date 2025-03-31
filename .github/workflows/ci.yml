@@ -7,52 +7,35 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # Évite les jobs bloqués
     steps:
-      # Étape 1: Checkout du code
       - uses: actions/checkout@v4
 
-      # Étape 2: Configuration SSH (avec meilleure gestion des erreurs)
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" | base64 --decode > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+          echo "${{ secrets.SSH_HOST }} ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI..." >> ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-          echo "Clé SSH configurée pour ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}"
 
-      # Étape 3: Test de connexion amélioré
-      - name: Validate SSH connection
+      - name: Debug SSH Configuration
         run: |
-          if ! ssh -i ~/.ssh/id_rsa -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "echo '✅ Connexion SSH validée'"; then
-            echo "::error::Échec de la connexion SSH"
-            exit 1
-          fi
+          echo "=== DEBUG ==="
+          ls -la ~/.ssh
+          head -n 3 ~/.ssh/id_rsa
+          echo "============="
 
-      # Étape 4: Déploiement avec gestion d'erreur détaillée
-      - name: Pull and deploy
+      - name: Test Connection
+        run: ssh -v -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} exit
+
+      - name: Deploy
         run: |
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
-            set -e
-            echo '📂 Accès à ${{ secrets.WORK_DIR }}...'
-            cd ${{ secrets.WORK_DIR }} || { echo '::error::Répertoire introuvable'; exit 1; }
-            
-            echo '🔄 Mise à jour du code...'
-            git pull origin main || { echo '::error::Échec du git pull'; exit 1; }
-            
-            echo '🐳 Arrêt des containers...'
-            docker-compose down || true  # Continue même si échec
-            
-            echo '🚀 Lancement des containers...'
-            docker-compose up -d --build || { echo '::error::Échec du docker-compose'; exit 1; }
-            
-            echo '✅ Déploiement réussi!'
+          ssh -i ~/.ssh/id_rsa ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
+            set -x
+            cd ${{ secrets.WORK_DIR }}
+            git reset --hard
+            git clean -fd
+            git pull origin main
+            docker-compose down
+            docker-compose up -d --build
           "
-
-      # Étape 5: Nettoyage systématique
-      - name: Cleanup
-        if: always()
-        run: |
-          rm -vf ~/.ssh/id_rsa ~/.ssh/known_hosts
-          echo "Nettoyage effectué"

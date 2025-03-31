@@ -1,4 +1,4 @@
-name: Deploy to AWS
+name: CI/CD Pipeline
 
 on:
   push:
@@ -8,28 +8,33 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" | base64 --decode > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          echo "|1|BASE64_HASH=|BASE64_HASH=" > ~/.ssh/known_hosts
+          ssh-keyscan ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      - name: Validate Permissions
-        run: |
-          echo "=== Vérification SSH ==="
-          stat -c "%a %U:%G" ~/.ssh/id_rsa
-          ssh-keygen -lf ~/.ssh/id_rsa | head -n1
-
-      - name: Deploy
+      - name: Deploy to AWS
         run: |
           ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
-            sudo chown admin:admin /home/admin/.ssh/authorized_keys
-            cd /home/admin/your_app_dir  # ← Modifiez ce chemin
+            set -e
+            echo '1. Accès au répertoire...'
+            cd ${{ secrets.WORK_DIR }}
+            
+            echo '2. Mise à jour du code...'
             git pull origin main
-            docker-compose down
+            
+            echo '3. Nettoyage Docker...'
+            docker-compose down --rmi all --volumes --remove-orphans
+            
+            echo '4. Reconstruction...'
             docker-compose up -d --build
           "
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf ~/.ssh

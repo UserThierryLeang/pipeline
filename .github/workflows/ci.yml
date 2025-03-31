@@ -15,26 +15,20 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" | base64 --decode > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          echo "${{ secrets.SSH_HOST }} ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI..." >> ~/.ssh/known_hosts
+          echo "|1|BASE64_HASH=|BASE64_HASH=" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      - name: Debug SSH Configuration
+      - name: Validate Permissions
         run: |
-          echo "=== DEBUG ==="
-          ls -la ~/.ssh
-          head -n 3 ~/.ssh/id_rsa
-          echo "============="
-
-      - name: Test Connection
-        run: ssh -v -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} exit
+          echo "=== Vérification SSH ==="
+          stat -c "%a %U:%G" ~/.ssh/id_rsa
+          ssh-keygen -lf ~/.ssh/id_rsa | head -n1
 
       - name: Deploy
         run: |
-          ssh -i ~/.ssh/id_rsa ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
-            set -x
-            cd ${{ secrets.WORK_DIR }}
-            git reset --hard
-            git clean -fd
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
+            sudo chown admin:admin /home/admin/.ssh/authorized_keys
+            cd /home/admin/your_app_dir  # ← Modifiez ce chemin
             git pull origin main
             docker-compose down
             docker-compose up -d --build
